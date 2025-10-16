@@ -1,0 +1,150 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+seatbelt_env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific
+runs/
+models/*.pt
+models/*.onnx
+models/*.engine
+custom_data/images/*
+custom_data/labels/*
+!custom_data/images/.gitkeep
+!custom_data/labels/.gitkeep
+
+# Logs
+*.log
+logs/
+runs/training_logs/*.csv
+runs/test_results/*.json
+runs/test_results/*.jpg
+
+# Temporary files
+temp_*
+*.tmp
+*.temp
+
+# Data files (large)
+data/train/images/*
+data/train/labels/*
+data/valid/images/*
+data/valid/labels/*
+data/test/images/*
+data/test/labels/*
+!data/train/images/.gitkeep
+!data/train/labels/.gitkeep
+!data/valid/images/.gitkeep
+!data/valid/labels/.gitkeep
+!data/test/images/.gitkeep
+!data/test/labels/.gitkeep
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# PyTorch
+*.pth
+*.pt
+!models/best.pt
+
+# Gradio
+gradio_cached_examples/
+flagged/
+
+# Weights & Biases
+wandb/
+
+# MLflow
+mlruns/
+
+# TensorBoard
+runs/
+
+# YOLO
+yolov11*.pt
+yolo11*.pt
+
+# Roboflow
+roboflow/
+
+# Docker
+.dockerignore
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# API keys
+api_keys.txt
+secrets.txt
+
+# Large files
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# Backup files
+*.bak
+*.backup
+*_backup.*
+
+# Test outputs
+test_outputs/
+test_results/
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Pytest
+.pytest_cache/
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
