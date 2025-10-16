@@ -39,6 +39,32 @@ python app.py
 
 Truy cập: http://127.0.0.1:7860
 
+## 📥 Tải Dataset
+
+### Roboflow Dataset
+- **Link**: [Seatbelt Detection Dataset](https://universe.roboflow.com/traffic-violations/seatbelt-detection-esut6)
+- **Format**: YOLOv8
+- **Classes**: person-seatbelt, person-noseatbelt
+
+### Custom Dataset
+- Chuẩn bị ảnh theo format: JPG, PNG, BMP, TIFF
+- Sử dụng Labeling Tool để gán nhãn
+- Ứng dụng sẽ tự động tạo cấu trúc YOLO
+
+## 📊 Dataset Structure
+
+```
+your_dataset/
+├── data.yaml              # Cấu hình dataset
+├── train/
+│   ├── images/            # Ảnh training
+│   └── labels/            # Labels training (.txt files)
+└── valid/
+    ├── images/            # Ảnh validation
+    └── labels/            # Labels validation (.txt files)
+```
+
+
 ## 📖 Hướng dẫn sử dụng
 
 ### 🧠 Training
@@ -65,50 +91,6 @@ Truy cập: http://127.0.0.1:7860
 3. **Training**: Model sẽ được train với data kết hợp
 4. **Cải thiện**: Model được cải thiện với custom labels
 
-## 📊 Dataset Structure
-
-```
-your_dataset/
-├── data.yaml              # Cấu hình dataset
-├── train/
-│   ├── images/            # Ảnh training
-│   └── labels/            # Labels training (.txt files)
-└── valid/
-    ├── images/            # Ảnh validation
-    └── labels/            # Labels validation (.txt files)
-```
-
-## 📥 Tải Dataset
-
-### Roboflow Dataset
-- **Link**: [Seatbelt Detection Dataset](https://universe.roboflow.com/traffic-violations/seatbelt-detection-esut6)
-- **Format**: YOLOv8
-- **Classes**: person-seatbelt, person-noseatbelt
-
-### Custom Dataset
-- Chuẩn bị ảnh theo format: JPG, PNG, BMP, TIFF
-- Sử dụng Labeling Tool để gán nhãn
-- Ứng dụng sẽ tự động tạo cấu trúc YOLO
-
-## 🛠️ API Reference
-
-### SeatbeltTrainer
-```python
-trainer = SeatbeltTrainer(data_path="path/to/data.yaml", model_size="s")
-results = trainer.start_training(epochs=50, imgsz=640, batch=16)
-```
-
-### SeatbeltTester
-```python
-tester = SeatbeltTester(model_path="models/best.pt")
-result = tester.test_single_image("image.jpg", conf_threshold=0.25)
-```
-
-### SeatbeltLabeler
-```python
-labeler = SeatbeltLabeler(custom_data_path="custom_data")
-labeler.launch_labeling_session("image.jpg")
-```
 
 ## 📊 Metrics
 
@@ -158,10 +140,6 @@ labeler.launch_labeling_session("image.jpg")
 4. Push to branch
 5. Tạo Pull Request
 
-## 📄 License
-
-MIT License - xem file LICENSE để biết thêm chi tiết.
-
 ## 🙏 Acknowledgments
 
 - [Ultralytics YOLOv11](https://github.com/ultralytics/ultralytics)
@@ -172,8 +150,7 @@ MIT License - xem file LICENSE để biết thêm chi tiết.
 ## 📞 Support
 
 - GitHub Issues: [Tạo issue](https://github.com/LTaPhong/Seatbelt-detection/issues)
-- Email: lta.phong@example.com
-- Documentation: [Wiki](https://github.com/LTaPhong/Seatbelt-detection/wiki)
+- Email: phong570ltp@gmail.com
 
 ---
 
