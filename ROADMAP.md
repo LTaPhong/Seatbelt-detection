@@ -3,7 +3,7 @@
 ## 📋 **TODO List - Cải tiến Seatbelt Detection**
 
 ### 🚀 **Ưu tiên Cao** (Quick Wins)
-- [ ] **Batch Processing** - Upload và xử lý nhiều ảnh cùng lúc
+- [x] **Batch Processing** - Upload và xử lý nhiều ảnh cùng lúc
 - [ ] **Progress Bars** - Hiển thị tiến trình training/testing chi tiết  
 - [ ] **Export Results** - Xuất kết quả detection ra Excel/CSV
 - [ ] **Dark/Light Theme** - Toggle theme
@@ -11,7 +11,7 @@
 
 ### 🔧 **Model Performance**
 - [ ] **Data Augmentation** - Thêm rotation, flip, color jittering trong training
-- [ ] **Model Ensemble** - Kết hợp nhiều YOLO models (nano, small, medium)
+- [ ] **Model Ensemble** -  Nhiều models, YOLO models (nano, small, medium)
 - [ ] **Hyperparameter Tuning** - Auto-tune learning rate, batch size, epochs
 - [ ] **Cross-validation** - K-fold validation để đánh giá model tốt hơn
 - [ ] **Model Comparison** - So sánh performance của các models khác nhau

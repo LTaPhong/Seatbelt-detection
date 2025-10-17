@@ -109,6 +109,58 @@ class SeatbeltApp:
         except Exception as e:
             return image, f"❌ Lỗi test: {str(e)}"
     
+    def test_batch_images(self, files, conf_threshold, progress=gr.Progress()):
+        """Test multiple images in batch"""
+        try:
+            if not files or len(files) == 0:
+                return [], "❌ Vui lòng upload ít nhất 1 ảnh"
+            
+            results = []
+            summary = f"🔍 Batch Processing: {len(files)} ảnh\n\n"
+            total_detections = 0
+            
+            # Process each image
+            for i, file_path in enumerate(files):
+                progress(i / len(files), desc=f"Đang xử lý ảnh {i+1}/{len(files)}")
+                
+                try:
+                    # Read image from file path
+                    image = cv2.imread(file_path)
+                    if image is None:
+                        summary += f"📸 Ảnh {i+1}: Không thể đọc file\n\n"
+                        continue
+                    
+                    # Test image
+                    result = self.tester.test_single_image(file_path, float(conf_threshold))
+                    
+                    if result and 'detections' in result:
+                        # Draw detections
+                        result_image = self.visualizer.draw_detection(image, result['detections'], float(conf_threshold))
+                        results.append(result_image)
+                        
+                        # Add to summary
+                        det_count = len(result['detections'])
+                        total_detections += det_count
+                        summary += f"📸 Ảnh {i+1}: {det_count} objects\n"
+                        for j, det in enumerate(result['detections']):
+                            summary += f"  {j+1}. {det['class_name']}: {det['confidence']:.3f}\n"
+                        summary += "\n"
+                    else:
+                        results.append(image)  # Original image if no detections
+                        summary += f"📸 Ảnh {i+1}: Không phát hiện objects\n\n"
+                        
+                except Exception as e:
+                    summary += f"📸 Ảnh {i+1}: Lỗi xử lý - {str(e)}\n\n"
+                    continue
+            
+            # Final summary
+            summary += f"📊 Tổng kết: {len(files)} ảnh, {total_detections} detections"
+            
+            return results, summary
+            
+        except Exception as e:
+            return [], f"❌ Lỗi batch processing: {str(e)}"
+    
     def test_folder(self, folder_path, conf_threshold):
         """Test folder of images"""
         try:
@@ -518,6 +570,16 @@ def create_interface():
                         test_conf = gr.Slider(0.1, 1.0, 0.25, label="Confidence Threshold")
                         test_single_btn = gr.Button("🔍 Test Image", variant="primary")
                         
+                        # Batch processing
+                        gr.Markdown("### 🚀 Batch Processing")
+                        batch_images = gr.File(
+                            label="Upload nhiều ảnh",
+                            file_count="multiple",
+                            file_types=["image"]
+                        )
+                        batch_conf = gr.Slider(0.1, 1.0, 0.25, label="Confidence Threshold")
+                        batch_btn = gr.Button("🔍 Batch Test", variant="primary")
+                        
                         # Folder test
                         gr.Markdown("### Test folder")
                         test_folder_path = gr.Textbox(label="Folder Path")
@@ -535,6 +597,14 @@ def create_interface():
                         
                     with gr.Column():
                         test_result_image = gr.Image(label="Kết quả", type="numpy")
+                        batch_gallery = gr.Gallery(
+                            label="Batch Results",
+                            show_label=True,
+                            elem_id="batch_gallery",
+                            columns=2,
+                            rows=2,
+                            height="auto"
+                        )
                         test_output = gr.Textbox(
                             label="Test Output",
                             lines=15,
@@ -545,6 +615,12 @@ def create_interface():
                     app.test_single_image,
                     inputs=[test_image, test_conf],
                     outputs=[test_result_image, test_output]
+                )
+                
+                batch_btn.click(
+                    app.test_batch_images,
+                    inputs=[batch_images, batch_conf],
+                    outputs=[batch_gallery, test_output]
                 )
                 
                 test_folder_btn.click(

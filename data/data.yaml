@@ -1,13 +1,13 @@
-# Dataset configuration for Seatbelt Detection
-path: ./data  # dataset root dir
-train: train/images  # train images (relative to 'path')
-val: valid/images    # val images (relative to 'path')
-test: test/images    # test images (optional)
+train: ../train/images
+val: ../valid/images
+test: ../test/images
 
-# Classes
-nc: 2  # number of classes
-names: ['person-seatbelt', 'person-noseatbelt']  # class names
+nc: 4
+names: ['person-noseatbelt', 'person-seatbelt', 'seatbelt', 'windshield']
 
-# Additional info
-description: "Seatbelt Detection Dataset - YOLOv11 Training"
-version: "1.0"
+roboflow:
+  workspace: traffic-violations
+  project: seatbelt-detection-esut6
+  version: 5
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/traffic-violations/seatbelt-detection-esut6/dataset/5
