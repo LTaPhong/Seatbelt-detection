@@ -32,8 +32,25 @@ pip install -r requirements.txt
 ```
 
 ### 4. Chạy ứng dụng
+
+#### Option A: Sử dụng Scripts (Khuyến nghị)
 ```bash
+# Windows (PowerShell):
+.\run_app.ps1
+
+# Windows (Command Prompt):
+run_app.bat
+```
+
+#### Option B: Chạy thủ công
+```bash
+# 1. Kích hoạt môi trường ảo
+.\seatbelt_env\Scripts\Activate.ps1
+
+# 2. Vào thư mục ui
 cd ui
+
+# 3. Chạy ứng dụng
 python app.py
 ```
 

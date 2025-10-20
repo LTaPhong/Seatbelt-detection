@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import cv2
 import numpy as np
 from pathlib import Path
+import threading
 
 # Import our custom modules
 try:
@@ -32,6 +33,12 @@ class SeatbeltApp:
         self.visualizer = SeatbeltVisualizer()
         self.labeler = SeatbeltLabeler()
         
+        # Training control variables
+        self.training_active = False
+        self.training_paused = False
+        self.training_stopped = False
+        self.current_training_process = None
+        
         # Create necessary directories
         os.makedirs('runs/training_logs', exist_ok=True)
         os.makedirs('runs/test_results', exist_ok=True)
@@ -46,8 +53,15 @@ class SeatbeltApp:
         """Validate training input parameters"""
         errors = []
         
-        # Check data folder
-        if not data_folder or not os.path.exists(data_folder):
+        # Check data folder - extract actual path if it contains status message
+        actual_path = data_folder
+        if "✅" in data_folder and ":" in data_folder:
+            # Extract path from status message like "✅ Dataset đã có cấu trúc YOLO hợp lệ: E:\Projects\Seatbelt_detection\data"
+            parts = data_folder.split(":")
+            if len(parts) > 1:
+                actual_path = parts[-1].strip()
+        
+        if not actual_path or not os.path.exists(actual_path):
             errors.append("❌ Vui lòng chọn folder chứa dataset")
         
         # Check epochs
@@ -68,46 +82,86 @@ class SeatbeltApp:
         
         return errors
     
-    def train_model(self, data_folder, model_size, epochs, imgsz, batch, lr, device, progress=gr.Progress()):
+    def train_model(self, data_folder, model_size, epochs, imgsz, batch, lr, device):
         """Train YOLOv11 model with selected dataset"""
         try:
-            # Validate inputs
-            validation_errors = self.validate_training_inputs(data_folder, model_size, epochs, imgsz, batch, lr, device)
-            if validation_errors:
-                return "\n".join(validation_errors), "Chưa có model nào được train"
+            # Check if training is already active
+            if self.training_active:
+                yield ("⚠️ Training đang chạy! Vui lòng dừng training hiện tại trước khi bắt đầu mới.", 
+                        "Training đang chạy", "🔄 Training in progress", 0, 0.0, 0.0, 0.0, None,
+                        gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
+                        gr.update(visible=True), gr.update(visible=False), gr.update(scale=1))
+                return
             
-            progress(0.1, desc="🔍 Kiểm tra dataset...")
+            # Extract actual path from data_folder (might contain status message)
+            actual_path = data_folder
+            if "✅" in data_folder and ":" in data_folder:
+                parts = data_folder.split(":")
+                if len(parts) > 1:
+                    actual_path = parts[-1].strip()
+            
+            # Validate inputs
+            validation_errors = self.validate_training_inputs(actual_path, model_size, epochs, imgsz, batch, lr, device)
+            if validation_errors:
+                yield ("\n".join(validation_errors), "Chưa có model nào được train", 
+                        "❌ Validation failed", 0, 0.0, 0.0, 0.0, None,
+                        gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+                        gr.update(visible=False), gr.update(visible=True), gr.update(scale=1))
+                return
             
             # Prepare dataset structure
-            prepare_result = self.prepare_dataset_structure(data_folder)
+            prepare_result = self.prepare_dataset_structure(actual_path)
             if "❌" in prepare_result:
-                return prepare_result, "Chưa có model nào được train"
-            
-            progress(0.2, desc="📁 Chuẩn bị cấu trúc dataset...")
+                yield (prepare_result, "Chưa có model nào được train", 
+                        "❌ Dataset preparation failed", 0, 0.0, 0.0, 0.0, None,
+                        gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+                        gr.update(visible=False), gr.update(visible=True), gr.update(scale=1))
+                return
             
             # Create data.yaml path
-            data_yaml_path = os.path.join(data_folder, "data.yaml")
+            data_yaml_path = os.path.join(actual_path, "data.yaml")
+            
+            # Fix data.yaml paths to use absolute paths
+            self._fix_data_yaml_paths(data_yaml_path, actual_path)
             
             # Update trainer with new parameters
             self.trainer = SeatbeltTrainer(data_path=data_yaml_path, model_size=model_size)
             
-            progress(0.3, desc="🚀 Khởi tạo model...")
+            # Set training state
+            self.training_active = True
+            self.training_paused = False
+            self.training_stopped = False
             
-            # Start training with progress tracking
+            # Fix device selection - use CPU if CUDA not available
+            if device == "auto":
+                import torch
+                if torch.cuda.is_available():
+                    device = "cuda"
+                else:
+                    device = "cpu"
+                    print("⚠️ CUDA không khả dụng, sử dụng CPU")
+            
+            # Show initial status
+            yield (f"🚀 Training đã bắt đầu!\n\n📊 Thông tin training:\n- Model: YOLOv11-{model_size}\n- Epochs: {epochs}\n- Image Size: {imgsz}\n- Batch Size: {batch}\n- Learning Rate: {lr}\n- Device: {device}\n\n⏳ Đang training...", 
+                    f"🔄 Training đang chạy...\n📊 YOLOv11-{model_size} | Epochs: {epochs} | Size: {imgsz}\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", 
+                    "🔄 Training in progress...", 
+                    0, 0.0, 0.0, float(lr), None,
+                    gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), gr.update(visible=False),
+                    gr.update(visible=True), gr.update(visible=False), gr.update(scale=1))
+            
+            # Start training with progress updates
             results = self.trainer.start_training(
                 epochs=int(epochs),
                 imgsz=int(imgsz),
                 batch=int(batch),
                 lr=float(lr),
-                device=device,
-                progress_callback=lambda p: progress(0.3 + 0.6 * p, desc=f"🧠 Training... Epoch {p:.0f}/{epochs}")
+                device=device
             )
             
-            progress(0.9, desc="💾 Lưu model...")
+            # Reset training state
+            self.training_active = False
             
-            if results:
-                progress(1.0, desc="✅ Training hoàn thành!")
-                
+            if results and not self.training_stopped:
                 # Update model status
                 model_status = f"""✅ Model đã được train thành công!
 📊 YOLOv11-{model_size} | Epochs: {epochs} | Size: {imgsz}
@@ -130,13 +184,75 @@ class SeatbeltApp:
 
 Bạn có thể sử dụng model này để test trong tab "Test / Visualize"!"""
                 
-                return output_text, model_status
+                # Get final metrics and create chart
+                final_metrics = self._get_training_metrics()
+                training_chart = self._create_training_chart()
+                
+                yield (output_text, model_status, "✅ Training completed successfully!", 
+                        int(epochs), final_metrics.get('loss', 0.0), 
+                        final_metrics.get('map50', 0.0), float(lr), training_chart,
+                        gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+                        gr.update(visible=True), gr.update(visible=True), gr.update(scale=1))
+            elif self.training_stopped:
+                yield ("⏹️ Training đã được dừng bởi người dùng.", 
+                        "Training stopped", "⏹️ Training stopped by user", 
+                        0, 0.0, 0.0, 0.0, None,
+                        gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+                        gr.update(visible=True), gr.update(visible=True), gr.update(scale=1))
             else:
-                return "❌ Training thất bại. Vui lòng kiểm tra log để biết lỗi chi tiết.", "Chưa có model nào được train"
+                yield ("❌ Training thất bại. Vui lòng kiểm tra log để biết lỗi chi tiết.", 
+                        "Chưa có model nào được train", "❌ Training failed", 
+                        0, 0.0, 0.0, 0.0, None,
+                        gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+                        gr.update(visible=True), gr.update(visible=True), gr.update(scale=1))
                 
         except Exception as e:
+            self.training_active = False
             error_msg = f"❌ Lỗi training: {str(e)}\n\n💡 Gợi ý:\n- Kiểm tra đường dẫn dataset\n- Đảm bảo có đủ RAM/VRAM\n- Thử giảm batch size nếu bị lỗi memory"
-            return error_msg, "Chưa có model nào được train"
+            yield (error_msg, "Chưa có model nào được train", "❌ Training error", 
+                    0, 0.0, 0.0, 0.0, None,
+                    gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+                    gr.update(visible=True), gr.update(visible=True), gr.update(scale=1))
+
+    
+    def get_training_progress(self):
+        """Get current training progress for real-time updates"""
+        try:
+            # Check if training is running by looking for results.csv
+            results_path = "runs/train/results.csv"
+            if not os.path.exists(results_path):
+                return ("Training not started", 0, 0.0, 0.0, 0.0, None)
+            
+            # Try to get latest metrics from results.csv
+            metrics = self._get_training_metrics()
+            
+            # Create updated chart
+            chart = self._create_training_chart()
+            
+            # Get current epoch from results
+            current_epoch = 0
+            try:
+                import pandas as pd
+                df = pd.read_csv(results_path)
+                if not df.empty:
+                    current_epoch = int(df.iloc[-1]['epoch'])
+            except:
+                pass
+            
+            # Check if training is still active
+            if current_epoch > 0 and current_epoch < 50:
+                status = f"🔄 Training Epoch {current_epoch}/50 - Loss: {metrics.get('loss', 0.0):.4f}"
+            elif current_epoch >= 50:
+                status = f"✅ Training Completed - Final Loss: {metrics.get('loss', 0.0):.4f}"
+                self.training_active = False
+            else:
+                status = "⏳ Training starting..."
+            
+            return (status, current_epoch, metrics.get('loss', 0.0), 
+                    metrics.get('map50', 0.0), metrics.get('lr', 0.0), chart)
+                    
+        except Exception as e:
+            return (f"❌ Error: {str(e)}", 0, 0.0, 0.0, 0.0, None)
     
     def open_training_results(self):
         """Open training results folder"""
@@ -159,6 +275,266 @@ Bạn có thể sử dụng model này để test trong tab "Test / Visualize"!"
             
         except Exception as e:
             return f"❌ Lỗi mở thư mục: {str(e)}"
+    
+    def _fix_data_yaml_paths(self, data_yaml_path, dataset_path):
+        """Fix data.yaml to use absolute paths and validate dataset"""
+        try:
+            import yaml
+            
+            # Read current data.yaml
+            with open(data_yaml_path, 'r', encoding='utf-8') as f:
+                data_config = yaml.safe_load(f)
+            
+            # Update paths to absolute
+            data_config['path'] = os.path.abspath(dataset_path)
+            data_config['train'] = 'train/images'
+            data_config['val'] = 'valid/images'
+            data_config['test'] = 'test/images'
+            
+            # Validate and fix labels
+            self._validate_and_fix_labels(dataset_path)
+            
+            # Write back to data.yaml
+            with open(data_yaml_path, 'w', encoding='utf-8') as f:
+                yaml.dump(data_config, f, default_flow_style=False, allow_unicode=True)
+                
+        except Exception as e:
+            print(f"Warning: Could not fix data.yaml paths: {e}")
+    
+    def _validate_and_fix_labels(self, dataset_path):
+        """Validate and fix label files to ensure correct class indices"""
+        try:
+            import glob
+            
+            # Find all label files
+            train_labels_path = os.path.join(dataset_path, "train", "labels")
+            val_labels_path = os.path.join(dataset_path, "valid", "labels")
+            
+            label_paths = []
+            if os.path.exists(train_labels_path):
+                label_paths.extend(glob.glob(os.path.join(train_labels_path, "*.txt")))
+            if os.path.exists(val_labels_path):
+                label_paths.extend(glob.glob(os.path.join(val_labels_path, "*.txt")))
+            
+            print(f"🔍 Checking {len(label_paths)} label files...")
+            
+            fixed_count = 0
+            for label_path in label_paths:
+                try:
+                    with open(label_path, 'r') as f:
+                        lines = f.readlines()
+                    
+                    fixed_lines = []
+                    file_changed = False
+                    
+                    for line in lines:
+                        parts = line.strip().split()
+                        if len(parts) >= 5:  # Valid YOLO format
+                            class_id = int(parts[0])
+                            # Fix class 3 to class 1 (assuming class 3 is person-noseatbelt)
+                            if class_id == 3:
+                                parts[0] = '1'  # Map to person-noseatbelt
+                                file_changed = True
+                            elif class_id > 1:
+                                # Skip invalid classes
+                                continue
+                            
+                            fixed_lines.append(' '.join(parts) + '\n')
+                        else:
+                            # Skip invalid lines
+                            continue
+                    
+                    if file_changed:
+                        with open(label_path, 'w') as f:
+                            f.writelines(fixed_lines)
+                        fixed_count += 1
+                        
+                except Exception as e:
+                    print(f"Warning: Could not process {label_path}: {e}")
+                    continue
+            
+            if fixed_count > 0:
+                print(f"✅ Fixed {fixed_count} label files with invalid class indices")
+            else:
+                print("✅ All label files are valid")
+                
+        except Exception as e:
+            print(f"Warning: Could not validate labels: {e}")
+    
+    def _get_training_metrics(self):
+        """Get training metrics from results"""
+        try:
+            # Look for results.csv in runs/train
+            results_path = "runs/train/results.csv"
+            if os.path.exists(results_path):
+                import pandas as pd
+                df = pd.read_csv(results_path)
+                if not df.empty:
+                    last_row = df.iloc[-1]
+                    return {
+                        'loss': last_row.get('train/box_loss', 0.0),
+                        'map50': last_row.get('metrics/mAP50(B)', 0.0),
+                        'map50_95': last_row.get('metrics/mAP50-95(B)', 0.0),
+                        'precision': last_row.get('metrics/precision(B)', 0.0),
+                        'recall': last_row.get('metrics/recall(B)', 0.0)
+                    }
+            return {'loss': 0.0, 'map50': 0.0, 'map50_95': 0.0, 'precision': 0.0, 'recall': 0.0}
+        except Exception as e:
+            print(f"Error getting metrics: {e}")
+            return {'loss': 0.0, 'map50': 0.0, 'map50_95': 0.0, 'precision': 0.0, 'recall': 0.0}
+    
+    def _create_training_chart(self):
+        """Create training progress chart"""
+        try:
+            import matplotlib.pyplot as plt
+            import pandas as pd
+            
+            results_path = "runs/train/results.csv"
+            if not os.path.exists(results_path):
+                return None
+            
+            df = pd.read_csv(results_path)
+            if df.empty:
+                return None
+            
+            # Create subplots
+            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 8))
+            fig.suptitle('Training Progress', fontsize=16, fontweight='bold')
+            
+            # Plot loss
+            if 'train/box_loss' in df.columns:
+                ax1.plot(df['epoch'], df['train/box_loss'], 'b-', label='Box Loss')
+                ax1.plot(df['epoch'], df['val/box_loss'], 'r-', label='Val Box Loss')
+                ax1.set_title('Loss')
+                ax1.set_xlabel('Epoch')
+                ax1.set_ylabel('Loss')
+                ax1.legend()
+                ax1.grid(True)
+            
+            # Plot mAP
+            if 'metrics/mAP50(B)' in df.columns:
+                ax2.plot(df['epoch'], df['metrics/mAP50(B)'], 'g-', label='mAP@0.5')
+                ax2.plot(df['epoch'], df['metrics/mAP50-95(B)'], 'orange', label='mAP@0.5:0.95')
+                ax2.set_title('mAP')
+                ax2.set_xlabel('Epoch')
+                ax2.set_ylabel('mAP')
+                ax2.legend()
+                ax2.grid(True)
+            
+            # Plot Precision/Recall
+            if 'metrics/precision(B)' in df.columns and 'metrics/recall(B)' in df.columns:
+                ax3.plot(df['epoch'], df['metrics/precision(B)'], 'purple', label='Precision')
+                ax3.plot(df['epoch'], df['metrics/recall(B)'], 'brown', label='Recall')
+                ax3.set_title('Precision & Recall')
+                ax3.set_xlabel('Epoch')
+                ax3.set_ylabel('Score')
+                ax3.legend()
+                ax3.grid(True)
+            
+            # Plot Learning Rate
+            if 'lr/pg0' in df.columns:
+                ax4.plot(df['epoch'], df['lr/pg0'], 'red', label='Learning Rate')
+                ax4.set_title('Learning Rate')
+                ax4.set_xlabel('Epoch')
+                ax4.set_ylabel('LR')
+                ax4.legend()
+                ax4.grid(True)
+            
+            plt.tight_layout()
+            return fig
+            
+        except Exception as e:
+            print(f"Error creating chart: {e}")
+            return None
+    
+
+            
+        except Exception as e:
+            print(f"Error creating empty chart: {e}")
+            return None
+    
+    def refresh_training_status(self):
+        """Refresh training status and metrics"""
+        try:
+            metrics = self._get_training_metrics()
+            chart = self._create_training_chart()
+            
+            status = "✅ Training completed" if metrics['loss'] > 0 else "Chưa bắt đầu training"
+            
+            return (status, 
+                    int(metrics.get('epoch', 0)),
+                    float(metrics.get('loss', 0.0)),
+                    float(metrics.get('map50', 0.0)),
+                    float(metrics.get('lr', 0.0)),
+                    chart)
+        except Exception as e:
+            return (f"❌ Error: {str(e)}", 0, 0.0, 0.0, 0.0, None)
+    
+    def stop_training(self):
+        """Stop current training"""
+        try:
+            if self.training_active:
+                self.training_stopped = True
+                self.training_active = False
+                self.training_paused = False
+                
+                # Try to stop the training process if it exists
+                if self.current_training_process:
+                    self.current_training_process.terminate()
+                    self.current_training_process = None
+                
+                return ("⏹️ Training đã được dừng thành công!", 
+                        gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False))
+            else:
+                return ("⚠️ Không có training nào đang chạy để dừng.",
+                        gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False))
+        except Exception as e:
+            return (f"❌ Lỗi dừng training: {str(e)}",
+                    gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False))
+    
+    def pause_training(self):
+        """Pause current training"""
+        try:
+            if self.training_active and not self.training_paused:
+                self.training_paused = True
+                return ("⏸️ Training đã được tạm dừng. Sử dụng 'Resume' để tiếp tục.",
+                        gr.update(visible=False), gr.update(visible=True), gr.update(visible=True), gr.update(visible=False))
+            elif self.training_paused:
+                return ("⚠️ Training đã được tạm dừng rồi.",
+                        gr.update(visible=False), gr.update(visible=True), gr.update(visible=True), gr.update(visible=False))
+            else:
+                return ("⚠️ Không có training nào đang chạy để tạm dừng.",
+                        gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False))
+        except Exception as e:
+            return (f"❌ Lỗi tạm dừng training: {str(e)}",
+                    gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False))
+    
+    def resume_training(self):
+        """Resume paused training"""
+        try:
+            if self.training_paused:
+                self.training_paused = False
+                return ("▶️ Training đã được tiếp tục!",
+                        gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), gr.update(visible=True))
+            elif self.training_active:
+                return ("⚠️ Training đang chạy bình thường.",
+                        gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), gr.update(visible=True))
+            else:
+                return ("⚠️ Không có training nào để tiếp tục.",
+                        gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False))
+        except Exception as e:
+            return (f"❌ Lỗi tiếp tục training: {str(e)}",
+                    gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False))
+    
+    def get_training_control_state(self):
+        """Get current training control button states"""
+        if self.training_active:
+            if self.training_paused:
+                return (gr.update(visible=False), gr.update(visible=True), gr.update(visible=True), gr.update(visible=False))
+            else:
+                return (gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=True))
+        else:
+            return (gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False))
     
     def test_single_image(self, image, conf_threshold):
         """Test single image"""
@@ -549,7 +925,7 @@ def create_interface():
                 gr.Markdown("## Huấn luyện mô hình YOLOv11")
                 
                 with gr.Row():
-                    with gr.Column(scale=1):
+                    with gr.Column(scale=1) as left_column:
                         # Dataset Selection
                         gr.Markdown("### 📁 Dataset")
                         data_folder = gr.Textbox(
@@ -607,7 +983,12 @@ def create_interface():
                         
                         # Training Controls
                         gr.Markdown("### 🚀 Training Controls")
-                        train_btn = gr.Button("🚀 Start Training", variant="primary", size="lg")
+                        with gr.Row():
+                            train_btn = gr.Button("🚀 Start Training", variant="primary", size="lg")
+                            stop_btn = gr.Button("⏹️ Stop Training", variant="stop", size="lg", visible=False)
+                        with gr.Row():
+                            resume_btn = gr.Button("▶️ Resume Training", variant="secondary", size="lg", visible=False)
+                            pause_btn = gr.Button("⏸️ Pause Training", variant="secondary", size="lg", visible=False)
                         
                         # Model Status
                         gr.Markdown("### 📊 Model Status")
@@ -618,30 +999,69 @@ def create_interface():
                             lines=2
                         )
                         
-                    with gr.Column(scale=1):
-                        # Training Progress
-                        gr.Markdown("### 📈 Training Progress")
-                        training_progress = gr.Progress()
-                        
-                        # Training Output
-                        training_output = gr.Textbox(
-                            label="Training Output",
-                            lines=15,
-                            interactive=False,
-                            placeholder="Kết quả training sẽ hiển thị ở đây..."
-                        )
-                        
                         # Quick Actions
                         gr.Markdown("### ⚡ Quick Actions")
                         with gr.Row():
                             clear_btn = gr.Button("🗑️ Clear Output", variant="secondary", size="sm")
                             open_results_btn = gr.Button("📁 Open Results", variant="secondary", size="sm")
+                            refresh_btn = gr.Button("🔄 Refresh Status", variant="secondary", size="sm")
+                    
+                    with gr.Column(scale=2) as right_column:
+                        # Training Progress Section (hidden initially)
+                        with gr.Group(visible=False) as training_progress_group:
+                            gr.Markdown("### 📈 Training Progress")
+                            training_progress = gr.Progress()
+                            
+                            # Real-time Training Status
+                            training_status = gr.Textbox(
+                                label="Current Status",
+                                value="Chưa bắt đầu training",
+                                interactive=False,
+                                lines=2
+                            )
+                            
+                            # Training Metrics
+                            gr.Markdown("### 📊 Training Metrics")
+                            with gr.Row():
+                                current_epoch = gr.Number(label="Epoch", value=0, interactive=False)
+                                current_loss = gr.Number(label="Loss", value=0.0, interactive=False, precision=4)
+                            with gr.Row():
+                                current_map = gr.Number(label="mAP@0.5", value=0.0, interactive=False, precision=4)
+                                current_lr = gr.Number(label="Learning Rate", value=0.0, interactive=False, precision=6)
+                            
+                            # Training Charts
+                            gr.Markdown("### 📈 Training Charts")
+                            training_chart = gr.Plot(label="Training Progress Chart")
+                        
+                        # Training Output (only when not training)
+                        with gr.Group(visible=True) as training_output_group:
+                            training_output = gr.Textbox(
+                                label="Training Output",
+                                lines=15,
+                                interactive=False,
+                                placeholder="Kết quả training sẽ hiển thị ở đây..."
+                            )
                 
                 # Training event handlers
                 train_btn.click(
                     app.train_model,
-                    inputs=[data_folder, model_size, epochs, imgsz, batch, lr, device, training_progress],
-                    outputs=[training_output, model_status]
+                    inputs=[data_folder, model_size, epochs, imgsz, batch, lr, device],
+                    outputs=[training_output, model_status, training_status, current_epoch, current_loss, current_map, current_lr, training_chart, train_btn, stop_btn, resume_btn, pause_btn, training_progress_group, training_output_group, left_column]
+                )
+                
+                stop_btn.click(
+                    app.stop_training,
+                    outputs=[training_output, train_btn, stop_btn, resume_btn, pause_btn]
+                )
+                
+                pause_btn.click(
+                    app.pause_training,
+                    outputs=[training_output, train_btn, stop_btn, resume_btn, pause_btn]
+                )
+                
+                resume_btn.click(
+                    app.resume_training,
+                    outputs=[training_output, train_btn, stop_btn, resume_btn, pause_btn]
                 )
                 
                 # Folder selection
@@ -652,13 +1072,25 @@ def create_interface():
                 
                 # Quick actions
                 clear_btn.click(
-                    lambda: ("", "Chưa có model nào được train"),
-                    outputs=[training_output, model_status]
+                    lambda: ("", "Chưa có model nào được train", "Chưa bắt đầu training", 0, 0.0, 0.0, 0.0, None, gr.update(visible=False), gr.update(visible=True), gr.update(scale=1)),
+                    outputs=[training_output, model_status, training_status, current_epoch, current_loss, current_map, current_lr, training_chart, training_progress_group, training_output_group, left_column]
                 )
                 
                 open_results_btn.click(
                     app.open_training_results,
                     outputs=training_output
+                )
+                
+                # Manual refresh button for real-time updates
+                def manual_refresh():
+                    if app.training_active:
+                        return app.get_training_progress()
+                    else:
+                        return app.refresh_training_status()
+                
+                refresh_btn.click(
+                    manual_refresh,
+                    outputs=[training_status, current_epoch, current_loss, current_map, current_lr, training_chart]
                 )
             
             # Tab 2: Testing & Visualization
