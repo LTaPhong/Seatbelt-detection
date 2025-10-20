@@ -3,7 +3,7 @@
 ## 📋 **TODO List - Cải tiến Seatbelt Detection**
 
 ### 🚀 **Ưu tiên Cao** (Quick Wins)
-- [x] **Batch Processing** - Upload và xử lý nhiều ảnh cùng lúc
+- [ ] **Batch Processing** - Upload và xử lý nhiều ảnh cùng lúc
 - [ ] **Progress Bars** - Hiển thị tiến trình training/testing chi tiết  
 - [ ] **Export Results** - Xuất kết quả detection ra Excel/CSV
 - [ ] **Dark/Light Theme** - Toggle theme

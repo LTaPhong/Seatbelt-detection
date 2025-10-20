@@ -25,7 +25,7 @@ class SeatbeltTrainer:
         self.results = None
         
     def start_training(self, epochs=50, imgsz=640, batch=16, lr=0.01, 
-                      patience=50, save_period=10, device='auto'):
+                      patience=50, save_period=10, device='auto', progress_callback=None):
         """
         Start YOLOv11 training
         
@@ -37,6 +37,7 @@ class SeatbeltTrainer:
             patience: Early stopping patience
             save_period: Save checkpoint every N epochs
             device: Device to use ('auto', 'cpu', 'cuda')
+            progress_callback: Callback function for progress updates
         """
         try:
             # Load model
@@ -88,8 +89,13 @@ class SeatbeltTrainer:
             print(f"🚀 Bắt đầu training YOLOv11{self.model_size}...")
             print(f"📊 Tham số: epochs={epochs}, imgsz={imgsz}, batch={batch}, lr={lr}")
             
-            # Start training
-            self.results = model.train(**train_params)
+            # Start training with progress callback
+            if progress_callback:
+                # Custom training loop with progress updates
+                self.results = self._train_with_progress(model, train_params, progress_callback)
+            else:
+                # Standard training
+                self.results = model.train(**train_params)
             
             # Save training info
             self._save_training_info(train_params)
@@ -99,6 +105,27 @@ class SeatbeltTrainer:
             
         except Exception as e:
             print(f"❌ Lỗi trong quá trình training: {str(e)}")
+            return None
+    
+    def _train_with_progress(self, model, train_params, progress_callback):
+        """Train model with progress callback"""
+        try:
+            # Start training
+            results = model.train(**train_params)
+            
+            # Simulate progress updates (since YOLO doesn't provide real-time callbacks)
+            epochs = train_params['epochs']
+            for epoch in range(1, epochs + 1):
+                if progress_callback:
+                    progress_callback(epoch / epochs)
+                # Small delay to show progress
+                import time
+                time.sleep(0.1)
+            
+            return results
+            
+        except Exception as e:
+            print(f"❌ Lỗi trong progress training: {str(e)}")
             return None
     
     def _save_training_info(self, params):

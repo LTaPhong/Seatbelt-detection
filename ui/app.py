@@ -42,16 +42,48 @@ class SeatbeltApp:
         """Prepare dataset structure for training"""
         return self.check_and_prepare_dataset(data_folder)
     
-    def train_model(self, data_folder, model_size, epochs, imgsz, batch, lr, device):
+    def validate_training_inputs(self, data_folder, model_size, epochs, imgsz, batch, lr, device):
+        """Validate training input parameters"""
+        errors = []
+        
+        # Check data folder
+        if not data_folder or not os.path.exists(data_folder):
+            errors.append("❌ Vui lòng chọn folder chứa dataset")
+        
+        # Check epochs
+        if not epochs or epochs < 1 or epochs > 1000:
+            errors.append("❌ Epochs phải từ 1 đến 1000")
+        
+        # Check image size
+        if not imgsz or imgsz < 32 or imgsz > 2048:
+            errors.append("❌ Image size phải từ 32 đến 2048")
+        
+        # Check batch size
+        if not batch or batch < 1 or batch > 128:
+            errors.append("❌ Batch size phải từ 1 đến 128")
+        
+        # Check learning rate
+        if not lr or lr <= 0 or lr > 1:
+            errors.append("❌ Learning rate phải từ 0.001 đến 1.0")
+        
+        return errors
+    
+    def train_model(self, data_folder, model_size, epochs, imgsz, batch, lr, device, progress=gr.Progress()):
         """Train YOLOv11 model with selected dataset"""
         try:
-            if not data_folder or not os.path.exists(data_folder):
-                return "❌ Vui lòng chọn folder chứa dataset"
+            # Validate inputs
+            validation_errors = self.validate_training_inputs(data_folder, model_size, epochs, imgsz, batch, lr, device)
+            if validation_errors:
+                return "\n".join(validation_errors), "Chưa có model nào được train"
+            
+            progress(0.1, desc="🔍 Kiểm tra dataset...")
             
             # Prepare dataset structure
             prepare_result = self.prepare_dataset_structure(data_folder)
             if "❌" in prepare_result:
-                return prepare_result
+                return prepare_result, "Chưa có model nào được train"
+            
+            progress(0.2, desc="📁 Chuẩn bị cấu trúc dataset...")
             
             # Create data.yaml path
             data_yaml_path = os.path.join(data_folder, "data.yaml")
@@ -59,22 +91,74 @@ class SeatbeltApp:
             # Update trainer with new parameters
             self.trainer = SeatbeltTrainer(data_path=data_yaml_path, model_size=model_size)
             
-            # Start training
+            progress(0.3, desc="🚀 Khởi tạo model...")
+            
+            # Start training with progress tracking
             results = self.trainer.start_training(
                 epochs=int(epochs),
                 imgsz=int(imgsz),
                 batch=int(batch),
                 lr=float(lr),
-                device=device
+                device=device,
+                progress_callback=lambda p: progress(0.3 + 0.6 * p, desc=f"🧠 Training... Epoch {p:.0f}/{epochs}")
             )
             
+            progress(0.9, desc="💾 Lưu model...")
+            
             if results:
-                return "✅ Training hoàn thành! Kiểm tra thư mục runs/train/ để xem kết quả."
+                progress(1.0, desc="✅ Training hoàn thành!")
+                
+                # Update model status
+                model_status = f"""✅ Model đã được train thành công!
+📊 YOLOv11-{model_size} | Epochs: {epochs} | Size: {imgsz}
+📁 Path: runs/train/weights/best.pt
+⏰ {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}"""
+                
+                output_text = f"""✅ Training hoàn thành thành công!
+
+📊 Thông tin training:
+- Model: YOLOv11-{model_size}
+- Epochs: {epochs}
+- Image Size: {imgsz}
+- Batch Size: {batch}
+- Learning Rate: {lr}
+- Device: {device}
+
+📁 Kết quả được lưu tại: runs/train/
+🎯 Model tốt nhất: runs/train/weights/best.pt
+📈 Logs: runs/train/results.csv
+
+Bạn có thể sử dụng model này để test trong tab "Test / Visualize"!"""
+                
+                return output_text, model_status
             else:
-                return "❌ Training thất bại. Vui lòng kiểm tra log để biết lỗi."
+                return "❌ Training thất bại. Vui lòng kiểm tra log để biết lỗi chi tiết.", "Chưa có model nào được train"
                 
         except Exception as e:
-            return f"❌ Lỗi training: {str(e)}"
+            error_msg = f"❌ Lỗi training: {str(e)}\n\n💡 Gợi ý:\n- Kiểm tra đường dẫn dataset\n- Đảm bảo có đủ RAM/VRAM\n- Thử giảm batch size nếu bị lỗi memory"
+            return error_msg, "Chưa có model nào được train"
+    
+    def open_training_results(self):
+        """Open training results folder"""
+        try:
+            import subprocess
+            import platform
+            
+            results_path = os.path.abspath("runs/train")
+            if not os.path.exists(results_path):
+                return "❌ Chưa có kết quả training nào. Hãy train model trước!"
+            
+            if platform.system() == "Windows":
+                subprocess.run(["explorer", results_path])
+            elif platform.system() == "Darwin":  # macOS
+                subprocess.run(["open", results_path])
+            else:  # Linux
+                subprocess.run(["xdg-open", results_path])
+            
+            return f"✅ Đã mở thư mục kết quả: {results_path}"
+            
+        except Exception as e:
+            return f"❌ Lỗi mở thư mục: {str(e)}"
     
     def test_single_image(self, image, conf_threshold):
         """Test single image"""
@@ -108,58 +192,6 @@ class SeatbeltApp:
                 
         except Exception as e:
             return image, f"❌ Lỗi test: {str(e)}"
-    
-    def test_batch_images(self, files, conf_threshold, progress=gr.Progress()):
-        """Test multiple images in batch"""
-        try:
-            if not files or len(files) == 0:
-                return [], "❌ Vui lòng upload ít nhất 1 ảnh"
-            
-            results = []
-            summary = f"🔍 Batch Processing: {len(files)} ảnh\n\n"
-            total_detections = 0
-            
-            # Process each image
-            for i, file_path in enumerate(files):
-                progress(i / len(files), desc=f"Đang xử lý ảnh {i+1}/{len(files)}")
-                
-                try:
-                    # Read image from file path
-                    image = cv2.imread(file_path)
-                    if image is None:
-                        summary += f"📸 Ảnh {i+1}: Không thể đọc file\n\n"
-                        continue
-                    
-                    # Test image
-                    result = self.tester.test_single_image(file_path, float(conf_threshold))
-                    
-                    if result and 'detections' in result:
-                        # Draw detections
-                        result_image = self.visualizer.draw_detection(image, result['detections'], float(conf_threshold))
-                        results.append(result_image)
-                        
-                        # Add to summary
-                        det_count = len(result['detections'])
-                        total_detections += det_count
-                        summary += f"📸 Ảnh {i+1}: {det_count} objects\n"
-                        for j, det in enumerate(result['detections']):
-                            summary += f"  {j+1}. {det['class_name']}: {det['confidence']:.3f}\n"
-                        summary += "\n"
-                    else:
-                        results.append(image)  # Original image if no detections
-                        summary += f"📸 Ảnh {i+1}: Không phát hiện objects\n\n"
-                        
-                except Exception as e:
-                    summary += f"📸 Ảnh {i+1}: Lỗi xử lý - {str(e)}\n\n"
-                    continue
-            
-            # Final summary
-            summary += f"📊 Tổng kết: {len(files)} ảnh, {total_detections} detections"
-            
-            return results, summary
-            
-        except Exception as e:
-            return [], f"❌ Lỗi batch processing: {str(e)}"
     
     def test_folder(self, folder_path, conf_threshold):
         """Test folder of images"""
@@ -517,45 +549,116 @@ def create_interface():
                 gr.Markdown("## Huấn luyện mô hình YOLOv11")
                 
                 with gr.Row():
-                    with gr.Column():
+                    with gr.Column(scale=1):
+                        # Dataset Selection
+                        gr.Markdown("### 📁 Dataset")
                         data_folder = gr.Textbox(
                             label="Dataset Folder Path",
-                            placeholder="Nhập đường dẫn đến folder chứa dataset"
+                            placeholder="Nhập đường dẫn đến folder chứa dataset",
+                            info="Chọn folder chứa dataset hoặc click nút bên cạnh để chọn"
                         )
-                        folder_btn = gr.Button("📁 Chọn Folder", variant="secondary")
+                        folder_btn = gr.Button("📁 Chọn Folder", variant="secondary", size="sm")
+                        
+                        # Model Configuration
+                        gr.Markdown("### ⚙️ Model Configuration")
                         model_size = gr.Dropdown(
                             choices=["s", "m", "l", "x"],
                             value="s",
-                            label="Model Size"
+                            label="Model Size",
+                            info="s=small, m=medium, l=large, x=xlarge"
                         )
-                        epochs = gr.Number(value=50, label="Epochs")
-                        imgsz = gr.Number(value=640, label="Image Size")
-                        batch = gr.Number(value=16, label="Batch Size")
-                        lr = gr.Number(value=0.01, label="Learning Rate")
+                        
+                        # Training Parameters
+                        gr.Markdown("### 🎯 Training Parameters")
+                        with gr.Row():
+                            epochs = gr.Number(
+                                value=50, 
+                                label="Epochs",
+                                info="Số lần lặp qua toàn bộ dataset",
+                                precision=0
+                            )
+                            imgsz = gr.Number(
+                                value=640, 
+                                label="Image Size",
+                                info="Kích thước ảnh input",
+                                precision=0
+                            )
+                        
+                        with gr.Row():
+                            batch = gr.Number(
+                                value=16, 
+                                label="Batch Size",
+                                info="Số ảnh xử lý cùng lúc",
+                                precision=0
+                            )
+                            lr = gr.Number(
+                                value=0.01, 
+                                label="Learning Rate",
+                                info="Tốc độ học của model",
+                                precision=4
+                            )
+                        
                         device = gr.Dropdown(
                             choices=["auto", "cpu", "cuda"],
                             value="auto",
-                            label="Device"
+                            label="Device",
+                            info="auto= tự động chọn, cpu= CPU, cuda= GPU"
                         )
                         
-                        train_btn = gr.Button("🚀 Start Training", variant="primary")
+                        # Training Controls
+                        gr.Markdown("### 🚀 Training Controls")
+                        train_btn = gr.Button("🚀 Start Training", variant="primary", size="lg")
                         
-                    with gr.Column():
+                        # Model Status
+                        gr.Markdown("### 📊 Model Status")
+                        model_status = gr.Textbox(
+                            label="Current Model",
+                            value="Chưa có model nào được train",
+                            interactive=False,
+                            lines=2
+                        )
+                        
+                    with gr.Column(scale=1):
+                        # Training Progress
+                        gr.Markdown("### 📈 Training Progress")
+                        training_progress = gr.Progress()
+                        
+                        # Training Output
                         training_output = gr.Textbox(
                             label="Training Output",
-                            lines=10,
-                            interactive=False
+                            lines=15,
+                            interactive=False,
+                            placeholder="Kết quả training sẽ hiển thị ở đây..."
                         )
+                        
+                        # Quick Actions
+                        gr.Markdown("### ⚡ Quick Actions")
+                        with gr.Row():
+                            clear_btn = gr.Button("🗑️ Clear Output", variant="secondary", size="sm")
+                            open_results_btn = gr.Button("📁 Open Results", variant="secondary", size="sm")
                 
+                # Training event handlers
                 train_btn.click(
                     app.train_model,
-                    inputs=[data_folder, model_size, epochs, imgsz, batch, lr, device],
-                    outputs=training_output
+                    inputs=[data_folder, model_size, epochs, imgsz, batch, lr, device, training_progress],
+                    outputs=[training_output, model_status]
                 )
                 
+                # Folder selection
                 folder_btn.click(
                     app.select_folder,
                     outputs=data_folder
+                )
+                
+                # Quick actions
+                clear_btn.click(
+                    lambda: ("", "Chưa có model nào được train"),
+                    outputs=[training_output, model_status]
+                )
+                
+                open_results_btn.click(
+                    app.open_training_results,
+                    outputs=training_output
                 )
             
             # Tab 2: Testing & Visualization
@@ -569,16 +672,6 @@ def create_interface():
                         test_image = gr.Image(label="Upload ảnh", type="numpy")
                         test_conf = gr.Slider(0.1, 1.0, 0.25, label="Confidence Threshold")
                         test_single_btn = gr.Button("🔍 Test Image", variant="primary")
-                        
-                        # Batch processing
-                        gr.Markdown("### 🚀 Batch Processing")
-                        batch_images = gr.File(
-                            label="Upload nhiều ảnh",
-                            file_count="multiple",
-                            file_types=["image"]
-                        )
-                        batch_conf = gr.Slider(0.1, 1.0, 0.25, label="Confidence Threshold")
-                        batch_btn = gr.Button("🔍 Batch Test", variant="primary")
                         
                         # Folder test
                         gr.Markdown("### Test folder")
@@ -597,14 +690,6 @@ def create_interface():
                         
                     with gr.Column():
                         test_result_image = gr.Image(label="Kết quả", type="numpy")
-                        batch_gallery = gr.Gallery(
-                            label="Batch Results",
-                            show_label=True,
-                            elem_id="batch_gallery",
-                            columns=2,
-                            rows=2,
-                            height="auto"
-                        )
                         test_output = gr.Textbox(
                             label="Test Output",
                             lines=15,
@@ -615,12 +700,6 @@ def create_interface():
                     app.test_single_image,
                     inputs=[test_image, test_conf],
                     outputs=[test_result_image, test_output]
-                )
-                
-                batch_btn.click(
-                    app.test_batch_images,
-                    inputs=[batch_images, batch_conf],
-                    outputs=[batch_gallery, test_output]
                 )
                 
                 test_folder_btn.click(
